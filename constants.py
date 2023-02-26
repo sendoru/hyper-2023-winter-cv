@@ -32,3 +32,17 @@ R_DISTORTION = np.array([[ 9.00673129e-02,
 L_EXTRINSIC = np.concatenate((np.eye(3), np.zeros((3, 1))), axis=1)
 
 R_EXTRINSIC = np.concatenate((ROT.T, -TRANS), axis=1)
+
+# 영상의 frame rate
+# 실시간으로 처리되는 경우라면, fps도 실시간으로 구해서 그걸 대신 이용해야 함
+# 단위: Hz
+FRAME_RATE = 30
+# 단위: mm/s
+# 계산된 손가락의 이동 속도가 이것보다 크면 tracking 중지
+# 근데 이것도 순간 속도 따질때지
+# ex) 3초 내내 초속 4m으로 움직이진 않을거잖아
+SPEED_THRESHOLD = 4000
+# 
+DIST_THRESHOLD = 4000
+
+DEPTH_MIN_THRESHOLD = 50
