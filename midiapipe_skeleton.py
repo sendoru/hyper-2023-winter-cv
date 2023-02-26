@@ -113,9 +113,6 @@ while cap_l.isOpened():
     # 화면 밖으로 너무 튀어나가면 트래킹을 멈추게 하자
     if type(hand_3d) != type(None):
         # 8번점 = 검지끝
-        # TODO 이거 바꿔야됨
-        # 점 하나의 좌표값 기반 -> 점 두개의 거리 기반(이동속도)
-
         if len(recent_points) == 0:
             recent_points.append(hand_3d[0].points[8])
             recent_timings.append(frame_no / FRAME_RATE)
