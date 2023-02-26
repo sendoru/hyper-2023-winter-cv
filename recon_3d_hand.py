@@ -54,6 +54,10 @@ def connect_3d_hand_points(points: np.ndarray):
     if points.shape != (3, 21):
         raise ValueError("array size must be 3 x 21. Try using transpose matrix if the size is 21 x 3.")
     points = points.T
+
+    # Y좌표에 -1을 곱해줌
+    # 2d 사진에서는 아래쪽이 +y 방향인데 3d 공간에서는 보통 위쪽이 +y방향이라 이렇게 함
+    # open3d 시각화 결과 등에 영향을 줌
     points[:,1] *= -1
     points_o3d = o3d.utility.Vector3dVector(points)
     pointcloud = o3d.geometry.PointCloud(points=points_o3d)
