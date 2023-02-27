@@ -37,7 +37,7 @@ class LineWithTiming:
         return self.pointcloud.points[-1]
 
 def preprocess(image: np.ndarray, intrinsic_mat: np.ndarray, distortion_coeff: np.ndarray, hands):
-    image = cv2.undistort(image, L_INTRINSIC, L_DISTORTION)
+    image = cv2.undistort(image, intrinsic_mat, distortion_coeff)
     image.flags.writeable = False
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     results = hands.process(image)
@@ -108,7 +108,7 @@ while cap_l.isOpened():
     # 현실적으로 범위가 4m? 정도 이상 나올일이 없을 것 같으니까 그냥 그 밖으로 튀어나가면 점을 렌더링하지 않음
     # 4m도 너무크네
     # 이건 real world 환경 보면서 적당히 맞춰줘야될듯
-    # 2. spline interpolation, kalman filter (noise reduction), other shits
+    # 2. spline interpolation (이건 했음), kalman filter (noise reduction), other shits
     # 3. 저 1번이 있는 이유도 가끔 점이 너무 튀어나가서 그런건데, 사실 진짜 원인은 손 일부가 화면 밖으로 나갔을 때도 손을 트래킹하는데 이게 실제 손이랑 맞지가 않음
     # 화면 밖으로 너무 튀어나가면 트래킹을 멈추게 하자
     if type(hand_3d) != type(None):
