@@ -4,11 +4,12 @@ import mediapipe as mp
 import open3d as o3d 
 import numpy as np
 import scipy as sp
+from sklearn.linear_model import LinearRegression
 import copy
 from collections import deque
 
 from constants import *
-from recon_3d_hand import recon_3d_hand
+from recon_3d_hand import hand_landmarks_to_array, recon_3d_hand
 
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
@@ -58,6 +59,11 @@ def draw_hand(results, image):
             mp_drawing_styles.get_default_hand_connections_style())
 
 
+def linear_regression_update_with_moving_average(X, y, prev, decay=ALPHA):
+    reg = LinearRegression().fit(X, y)
+    prev.coef_ = decay * reg.coef_ + (1 - decay) * prev.coef_
+    prev.intercept_ = decay * reg.intercept_ + (1 - decay) * prev.intercept_
+
 # initialize
 vis = o3d.visualization.Visualizer()
 vis.create_window(width=1600, height=900)
@@ -68,20 +74,28 @@ save_image = False
 hands_l = mp_hands.Hands(
     max_num_hands=1,
     model_complexity=1,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5)
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6,
+    static_image_mode=False)
 
 hands_r = mp_hands.Hands(
     max_num_hands=1,
     model_complexity=1,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5)
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6,
+    static_image_mode=False)
 
 recent_points = deque()
 recent_timings = deque()
+regression_l = LinearRegression()
+regression_l.coef_ = np.zeros((3, 3))
+regression_l.intercept_ = np.zeros(3)
+regression_r = LinearRegression()
+regression_r.coef_ = np.zeros((3, 3))
+regression_r.intercept_ = np.zeros(3)
+alpha_sum = 0
 prev_point = None
 frame_no = 0
-
 
 # loop
 while cap_l.isOpened():
@@ -112,22 +126,38 @@ while cap_l.isOpened():
     # 3. 저 1번이 있는 이유도 가끔 점이 너무 튀어나가서 그런건데, 사실 진짜 원인은 손 일부가 화면 밖으로 나갔을 때도 손을 트래킹하는데 이게 실제 손이랑 맞지가 않음
     # 화면 밖으로 너무 튀어나가면 트래킹을 멈추게 하자
     if type(hand_3d) != type(None):
+        cur_point = hand_3d[0].points[8]
         # 8번점 = 검지끝
         if len(recent_points) == 0:
-            recent_points.append(hand_3d[0].points[8])
+            recent_points.append(cur_point)
             recent_timings.append(frame_no / FRAME_RATE)
+        
 
         else:
-            speed = np.linalg.norm(hand_3d[0].points[8] - recent_points[-1]) / ((frame_no / FRAME_RATE) - recent_timings[-1])
-            if np.linalg.norm(hand_3d[0].points[8]) <= DIST_THRESHOLD and speed <= SPEED_THRESHOLD and np.abs(hand_3d[0].points[8][2]) >= DEPTH_MIN_THRESHOLD:
-                cur_points = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.array([hand_3d[0].points[8], recent_points[-1]])))
+            print()
+            speed = np.linalg.norm(cur_point - recent_points[-1]) / ((frame_no / FRAME_RATE) - recent_timings[-1])
+            if np.linalg.norm(cur_point) <= DIST_THRESHOLD and speed <= SPEED_THRESHOLD and np.abs(cur_point[2]) >= DEPTH_MIN_THRESHOLD:
+                cur_points = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.array([cur_point, recent_points[-1]])))
                 # vis.add_geometry(cur_points)
                 line = o3d.geometry.LineSet()
                 line.points = cur_points.points
                 line.lines = o3d.utility.Vector2iVector([[0, 1]])
-                # vis.add_geometry(line)
-                recent_points.append(hand_3d[0].points[8])
+
+                recent_points.append(cur_point)
                 recent_timings.append(frame_no / FRAME_RATE)
+
+                # linear regression
+                alpha_sum = ALPHA + (1 - ALPHA) * alpha_sum
+
+                hand_landmark_array_l = hand_landmarks_to_array(results_l.multi_hand_landmarks[0])
+                linear_regression_update_with_moving_average(
+                    hand_landmarks_to_array(results_l.multi_hand_landmarks[0]),
+                    hand_3d[0].points,
+                    regression_l)
+                linear_regression_update_with_moving_average(
+                    hand_landmarks_to_array(results_r.multi_hand_landmarks[0]),
+                    hand_3d[0].points,
+                    regression_r)
 
         while len(recent_points) > 5:
             recent_points.popleft()
@@ -141,19 +171,26 @@ while cap_l.isOpened():
             # 손가락이 화면에서 너무 오랬동안 없어져 있던 경우에는 보간 중지
             if max(dt) <= .5:
                 xy = np.array(recent_points)
-                tt = np.linspace(recent_timings[-2], recent_timings[-1], 30)
+                tt = np.linspace(recent_timings[-2], recent_timings[-1], 20)
                 bspl = sp.interpolate.make_interp_spline(t, xy)
                 points = o3d.utility.Vector3dVector(bspl(tt))
                 pointcloud = o3d.geometry.PointCloud(points)
                 vis.add_geometry(pointcloud)
         
-        # vis.add_geometry(hand_3d[0])
-        # vis.add_geometry(hand_3d[1])
-        vis.poll_events()
-        vis.update_renderer()
 
-        # vis.remove_geometry(hand_3d[0])
-        # vis.remove_geometry(hand_3d[1])
+    else:
+        if len(results_l.multi_hand_landmarks) == 1:
+            # 앞에 계산해뒀던 선형회귀 쓰기
+            # 이때 alpha_sum으로 나눠줘야됨
+            hand_landmars_array = hand_landmarks_to_array(results_l.multi_hand_landmarks[0])
+            pos = regression_l.predict(hand_landmars_array[8]) / alpha_sum
+            
+
+        elif len(results_r.multi_hand_landmarks) == 1:
+            pass
+
+    vis.poll_events()
+    vis.update_renderer()
 
     # Flip the image horizontally for a selfie-view display.
     image_full = np.concatenate((image_l, image_r), axis=1)

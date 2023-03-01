@@ -12,6 +12,15 @@ mp_hands = mp.solutions.hands
 cap_l = cv2.VideoCapture("./output_L_near.mp4")
 cap_r = cv2.VideoCapture("./output_R_near.mp4")
 
+def hand_landmarks_to_array(hand_landmarks):
+    ret = np.zeros((21, 3))
+    for i in range(21): # 0~20
+        ret[i][0] = hand_landmarks.landmark[mp_hands.HandLandmark(i).value].x
+        ret[i][1] = hand_landmarks.landmark[mp_hands.HandLandmark(i).value].y
+        ret[i][2] = hand_landmarks.landmark[mp_hands.HandLandmark(i).value].z
+    return ret
+
+
 def map_hand_to_2d(hands, img_width: int, img_heigth: int):
     ret = []
     if type(hands.multi_hand_landmarks) == type(None):

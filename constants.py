@@ -45,4 +45,7 @@ SPEED_THRESHOLD = 4000
 # 
 DIST_THRESHOLD = 4000
 
-DEPTH_MIN_THRESHOLD = 50
+DEPTH_MIN_THRESHOLD = 30
+
+# linear regression with exponential moving average에 사용할 지수
+ALPHA = 0.2
