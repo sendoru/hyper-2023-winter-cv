@@ -116,7 +116,7 @@ while cap_l.isOpened():
         draw_hand(results_r, image_r)
 
     hand_3d = recon_3d_hand(image_l, image_r, results_l, results_r)
-
+    cur_point = None
     # 해볼만한거
     # 1. 범위에 제약조건을 걸자
     # 현실적으로 범위가 4m? 정도 이상 나올일이 없을 것 같으니까 그냥 그 밖으로 튀어나가면 점을 렌더링하지 않음
@@ -129,22 +129,11 @@ while cap_l.isOpened():
         cur_point = hand_3d[0].points[8]
         # 8번점 = 검지끝
         if len(recent_points) == 0:
-            recent_points.append(cur_point)
-            recent_timings.append(frame_no / FRAME_RATE)
+            pass
         
-
         else:
-            print()
             speed = np.linalg.norm(cur_point - recent_points[-1]) / ((frame_no / FRAME_RATE) - recent_timings[-1])
             if np.linalg.norm(cur_point) <= DIST_THRESHOLD and speed <= SPEED_THRESHOLD and np.abs(cur_point[2]) >= DEPTH_MIN_THRESHOLD:
-                cur_points = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(np.array([cur_point, recent_points[-1]])))
-                # vis.add_geometry(cur_points)
-                line = o3d.geometry.LineSet()
-                line.points = cur_points.points
-                line.lines = o3d.utility.Vector2iVector([[0, 1]])
-
-                recent_points.append(cur_point)
-                recent_timings.append(frame_no / FRAME_RATE)
 
                 # linear regression
                 alpha_sum = ALPHA + (1 - ALPHA) * alpha_sum
@@ -159,35 +148,53 @@ while cap_l.isOpened():
                     hand_3d[0].points,
                     regression_r)
 
-        while len(recent_points) > 5:
-            recent_points.popleft()
-            recent_timings.popleft()
-
-        # spline interpolation을 위해서는 기본 4개의 점이 필요 + 1개는 안정성을 위해 추가
-        if len(recent_points) == 5:
-            t = np.array(recent_timings)
-            dt = t[1:] - t[:-1]
-
-            # 손가락이 화면에서 너무 오랬동안 없어져 있던 경우에는 보간 중지
-            if max(dt) <= .5:
-                xy = np.array(recent_points)
-                tt = np.linspace(recent_timings[-2], recent_timings[-1], 20)
-                bspl = sp.interpolate.make_interp_spline(t, xy)
-                points = o3d.utility.Vector3dVector(bspl(tt))
-                pointcloud = o3d.geometry.PointCloud(points)
-                vis.add_geometry(pointcloud)
-        
-
     else:
-        if len(results_l.multi_hand_landmarks) == 1:
+        if results_l.multi_hand_landmarks:
             # 앞에 계산해뒀던 선형회귀 쓰기
             # 이때 alpha_sum으로 나눠줘야됨
             hand_landmars_array = hand_landmarks_to_array(results_l.multi_hand_landmarks[0])
-            pos = regression_l.predict(hand_landmars_array[8]) / alpha_sum
-            
+            cur_point = regression_l.predict(hand_landmars_array[8].reshape(1, -1)) / alpha_sum
+            cur_point = cur_point.reshape((-1,))
 
-        elif len(results_r.multi_hand_landmarks) == 1:
-            pass
+        elif results_r.multi_hand_landmarks:
+            hand_landmars_array = hand_landmarks_to_array(results_r.multi_hand_landmarks[0])
+            cur_point = regression_r.predict(hand_landmars_array[8].reshape(1, -1)) / alpha_sum
+            cur_point = cur_point.reshape((-1,))
+
+    if type(cur_point) != type(None):
+        if len(recent_points) == 0:
+            recent_points.append(cur_point)
+            recent_timings.append(frame_no / FRAME_RATE)
+
+        else:
+
+            speed = np.linalg.norm(cur_point - recent_points[-1]) / ((frame_no / FRAME_RATE) - recent_timings[-1])
+            if np.linalg.norm(cur_point) <= DIST_THRESHOLD and speed <= SPEED_THRESHOLD and np.abs(cur_point[2]) >= DEPTH_MIN_THRESHOLD:
+                recent_points.append(cur_point)
+                recent_timings.append(frame_no / FRAME_RATE)
+
+                while len(recent_points) > 5:
+                    recent_points.popleft()
+                    recent_timings.popleft()
+
+        # spline interpolation을 위해서는 기본 4개의 점이 필요 + 1개는 안정성을 위해 추가
+                if len(recent_points) == 5:
+                    t = np.array(recent_timings)
+                    dt = t[1:] - t[:-1]
+
+                    # 손가락이 화면에서 너무 오랬동안 없어져 있던 경우에는 보간 중지
+                    if dt[-1] <= .5:
+                        xy = np.array(recent_points)
+                        tt = np.linspace(recent_timings[-2], recent_timings[-1], 20)
+                        bspl = sp.interpolate.make_interp_spline(t, xy)
+                        points = o3d.utility.Vector3dVector(bspl(tt))
+                        pointcloud = o3d.geometry.PointCloud(points)
+                        lines = o3d.geometry.LineSet()
+                        lines.points = points
+                        lines.lines = o3d.utility.Vector2iVector([[i, i + 1] for i in range(len(points) - 1)])
+                        vis.add_geometry(pointcloud)
+                        vis.add_geometry(lines)
+            
 
     vis.poll_events()
     vis.update_renderer()
